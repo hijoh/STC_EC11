@@ -1,0 +1,298 @@
+C51 COMPILER V9.56.0.0   HL                                                                10/18/2023 16:03:19 PAGE 1   
+
+
+C51 COMPILER V9.56.0.0, COMPILATION OF MODULE HL
+OBJECT MODULE PLACED IN .\Objects\hl.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE hl.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\hl.lst
+                    -) TABS(2) OBJECT(.\Objects\hl.obj)
+
+line level    source
+
+   1          #include <STC8.H>
+   2          #include <INTRINS.H>
+   3          typedef   unsigned char u8;
+   4          typedef   unsigned int  u16;
+   5          typedef   unsigned long u32;
+   6          
+   7          
+   8          /*************  引脚声明  **************/
+   9          sbit LED1=P2^0;  // 定义LED1，低电平有效，指示时间0分钟
+  10          sbit LED2=P2^1;  // 定义LED2，低电平有效，指示时间15分钟
+  11          sbit LED3=P2^2;  // 定义LED3，低电平有效，指示时间45分钟
+  12          sbit LED4=P2^3;  // 定义LED4，低电平有效，指示时间60分钟
+  13          sbit LED5=P2^4;  // 定义LED5，低电平有效，指示错误报警
+  14          sbit FM  =P2^5;  // 定义蜂鸣器，低电平有效，声音提示
+  15          sbit HOT =P2^6;  // 定义发热管输出，高电平有效，加热工作
+  16          sbit FAN =P2^7;  // 定义风扇输出，高电平有效，风扇
+  17          sbit UL  =P0^0;  // 定义紫外灯，高电平有效，跟加热管同时工作
+  18          sbit PA = P3^2; // 定义EC11编码器的A脉冲引脚
+  19          sbit PN = P3^3; // 定义EC11编码器开关引脚
+  20          sbit PB = P3^4; // 定义EC11编码器的B脉冲引脚
+  21          /*************  本地变量声明  **************/
+  22          bit power,hotfan,an;
+  23          char dat,tmp,tmp2;
+  24          u16 tmt;
+  25          u16 millisecond,second,time1,time2;
+  26          /*************  本地函数声明  **************/
+  27          void SysInit();         //系统初始化
+  28          void Timer0_Init(void); //定时器0初始化
+  29          void Int0_Init(void);   //外部中断0初始化
+  30          void Int1_Init(void);   //外部中断0初始化
+  31          void fmsound(u8 dt);    //蜂鸣器次数
+  32          void Delay100ms(); 
+  33          void Delay500ms();
+  34          /******************************************/
+  35          /********  外部中断0中断服务函数  *********/
+  36          void INT0_Isr() interrupt 0
+  37          {
+  38   1       if(!power)return;
+  39   1       //if(dat==0)tmt=0; 
+  40   1       //if(tmt>=500)dat=0;//超过2秒复位
+  41   1       if(PB)dat++;//左转
+  42   1       if(!PB)dat--;//右转
+  43   1       if(dat>=3) //左转3个脉冲
+  44   1       {
+  45   2        tmp++;dat=0;tmt=0;an=1;
+  46   2        if(tmp>3)tmp=3;
+  47   2        if(tmp==1)second=900;
+  48   2        if(tmp==2)second=2700;  
+  49   2        if(tmp==3)second=3600;
+  50   2        //if(tmp==1)second=15;
+  51   2        //if(tmp==2)second=45;  
+  52   2        //if(tmp==3)second=60;
+  53   2       }
+  54   1       if(dat<=-3)//右转3个脉冲 
+C51 COMPILER V9.56.0.0   HL                                                                10/18/2023 16:03:19 PAGE 2   
+
+  55   1       {
+  56   2        tmp--;dat=0;tmt=0;an=1;
+  57   2        if(tmp<0)tmp=0; 
+  58   2        if(tmp==1)second=900;
+  59   2        if(tmp==2)second=2700;  
+  60   2        //if(tmp==1)second=15;
+  61   2        //if(tmp==2)second=45;  
+  62   2        if(tmp==0)second=0; 
+  63   2       }
+  64   1      }
+  65          /**********  定时器0中断服务函数  *********/
+  66          void TM0_Isr() interrupt 1
+  67          {
+  68   1       millisecond++;time1++;
+  69   1       if(millisecond>1000)
+  70   1       {
+  71   2        if(second>0)second--;
+  72   2        millisecond=0;
+  73   2       }
+  74   1       if(HOT==0&&hotfan==1)//关热管后风扇继续开30秒
+  75   1       {
+  76   2        time2++;
+  77   2        if(time2>30000)
+  78   2        {
+  79   3         hotfan=0;FAN=0;
+  80   3         time2=0;
+  81   3        }
+  82   2       }
+  83   1       if(tmt<500)tmt++;
+  84   1      }
+  85          /********* 外部中断1中断服务函数  *********/
+  86          void INT1_Isr() interrupt 2
+  87          {
+  88   1       time1=0;
+  89   1       while(!PN)
+  90   1       {
+  91   2        if(power==0&&time1>500)//关机状态下按下0.5秒开机
+  92   2        {
+  93   3         power=1;
+  94   3         break;
+  95   3        }
+  96   2        if(power==1&&time1>3000)//开机状态下按下3秒关机
+  97   2        {
+  98   3         power=0;second=0;
+  99   3         break; 
+ 100   3        }
+ 101   2       }   
+ 102   1      }
+ 103          /**********  主函数  *****************/
+ 104          void main()
+ 105          { 
+ 106   1       SysInit();
+ 107   1       while(1)
+ 108   1       {
+ 109   2        while(!power){LED1=1;LED2=1;LED3=1;LED4=1;LED5=0;HOT=0;UL=0;}
+ 110   2        while(power)
+ 111   2        {
+ 112   3         if(tmp==0){LED1=0;LED2=1;LED3=1;LED4=1;LED5=1;HOT=0;UL=0;}
+ 113   3         if(tmp==1){LED1=1;LED2=0;LED3=1;LED4=1;LED5=1;}
+ 114   3         if(tmp==2){LED1=1;LED2=1;LED3=0;LED4=1;LED5=1;}  
+ 115   3         if(tmp==3){LED1=1;LED2=1;LED3=1;LED4=0;LED5=1;}
+ 116   3         //if(second>15&&second<=45)tmp=2; 
+C51 COMPILER V9.56.0.0   HL                                                                10/18/2023 16:03:19 PAGE 3   
+
+ 117   3         //if(second>0&&second<=15)tmp=1;  
+ 118   3           
+ 119   3         if(second>900&&second<2700)tmp=2; 
+ 120   3         if(second>0&&second<900)tmp=1;    
+ 121   3         if(second==0&&tmp==1)
+ 122   3         {
+ 123   4          LED1=0;LED2=1;LED3=1;LED4=1;LED5=1;HOT=0;UL=0;tmp=0;
+ 124   4          fmsound(1);
+ 125   4         }    
+ 126   3      
+ 127   3         
+ 128   3         while(an&&power)
+ 129   3         {
+ 130   4          if(tmt<500&&tmp==0){LED1=0;LED2=1;LED3=1;LED4=1;LED5=1;}
+ 131   4          if(tmt<500&&tmp==1){LED1=1;LED2=0;LED3=1;LED4=1;LED5=1;}
+ 132   4          if(tmt<500&&tmp==2){LED1=1;LED2=1;LED3=0;LED4=1;LED5=1;}  
+ 133   4          if(tmt<500&&tmp==3){LED1=1;LED2=1;LED3=1;LED4=0;LED5=1;}
+ 134   4          if(tmt>=500&&tmp==0)
+ 135   4          {
+ 136   5           LED1=1;LED2=1;LED3=1;LED4=1;LED5=1;
+ 137   5           LED1=0;Delay500ms();
+ 138   5           LED1=1;Delay500ms();
+ 139   5           LED1=0;Delay500ms();
+ 140   5           LED1=1;Delay500ms();
+ 141   5           LED1=0;Delay500ms();
+ 142   5           LED1=1;Delay500ms(); 
+ 143   5           LED1=0;LED2=1;LED3=1;LED4=1;LED5=1;HOT=0;UL=0;an=0;
+ 144   5          }
+ 145   4          if(tmt>=500&&tmp==1)
+ 146   4          {
+ 147   5           LED1=1;LED2=1;LED3=1;LED4=1;LED5=1;
+ 148   5           LED2=0;Delay500ms();
+ 149   5           LED2=1;Delay500ms();
+ 150   5           LED2=0;Delay500ms();
+ 151   5           LED2=1;Delay500ms();
+ 152   5           LED2=0;Delay500ms();
+ 153   5           LED2=1;Delay500ms();       
+ 154   5           LED1=1;LED2=0;LED3=1;LED4=1;LED5=1;HOT=1;HOT=1;FAN=1;UL=1;hotfan=1;an=0;
+ 155   5          }
+ 156   4          if(tmt>=500&&tmp==2)
+ 157   4          {
+ 158   5           LED1=1;LED2=1;LED3=1;LED4=1;LED5=1;
+ 159   5           LED3=0;Delay500ms();
+ 160   5           LED3=1;Delay500ms();
+ 161   5           LED3=0;Delay500ms();
+ 162   5           LED3=1;Delay500ms();
+ 163   5           LED3=0;Delay500ms();
+ 164   5           LED3=1;Delay500ms();         
+ 165   5           LED1=1;LED2=1;LED3=0;LED4=1;LED5=1;HOT=1;HOT=1;FAN=1;UL=1;hotfan=1;an=0;
+ 166   5          } 
+ 167   4          if(tmt>=500&&tmp==3)
+ 168   4          {
+ 169   5           LED1=1;LED2=1;LED3=1;LED4=1;LED5=1;
+ 170   5           LED4=0;Delay500ms();
+ 171   5           LED4=1;Delay500ms();
+ 172   5           LED4=0;Delay500ms();
+ 173   5           LED4=1;Delay500ms();
+ 174   5           LED4=0;Delay500ms();
+ 175   5           LED4=1;Delay500ms();   
+ 176   5           LED1=1;LED2=1;LED3=1;LED4=0;LED5=1;HOT=1;HOT=1;FAN=1;UL=1;hotfan=1;an=0;
+ 177   5          }     
+ 178   4         }     
+C51 COMPILER V9.56.0.0   HL                                                                10/18/2023 16:03:19 PAGE 4   
+
+ 179   3        }
+ 180   2       }
+ 181   1      }
+ 182          
+ 183          /***********系统初始化***********/
+ 184          void SysInit()
+ 185          {
+ 186   1       P0M0 = 0Xff;P0M1 = 0X00;
+ 187   1       P2M0 = 0Xff;P2M1 = 0X00;
+ 188   1       P3M0 = 0X00;P3M1 = 0X00;
+ 189   1       P3PU &= ~0x08; 
+ 190   1       LED1=1;LED2=1;LED3=1;
+ 191   1       LED4=1;LED5=1;FM=1;
+ 192   1       HOT=0;FAN=0;UL=0;
+ 193   1       power=0;hotfan=0;
+ 194   1       millisecond=0;
+ 195   1       second=0;time2=0;
+ 196   1       dat=0;tmp=0;an=0;
+ 197   1       Timer0_Init();
+ 198   1       Int0_Init();
+ 199   1       Int1_Init();
+ 200   1       EA = 1; 
+ 201   1      }
+ 202          
+ 203          
+ 204          /**********  定时器0初始化函数  *********/
+ 205          void Timer0_Init(void)    //1毫秒@11.0592MHz
+ 206          {
+ 207   1        AUXR |= 0x80; //定时器时钟1T模式
+ 208   1        TMOD &= 0xF0; //设置定时器模式
+ 209   1        TL0 = 0xCD;   //设置定时初始值
+ 210   1        TH0 = 0xD4;   //设置定时初始值
+ 211   1        TF0 = 0;      //清除TF0标志
+ 212   1        TR0 = 1;      //定时器0开始计时
+ 213   1        ET0 = 1;      //使能定时器中断
+ 214   1        PT0 = 1;      //定时器0高优先级          
+ 215   1      }
+ 216          
+ 217          /**********  外部中断0初始化函数  *********/
+ 218          void Int0_Init(void)
+ 219          {
+ 220   1       IT0=1;//INT0下降沿有效
+ 221   1       EX0=1;//使能INT0中断
+ 222   1      }
+ 223          /**********  外部中断0初始化函数  *********/
+ 224          void Int1_Init(void)
+ 225          {
+ 226   1       IT1=1;//INT1下降沿有效
+ 227   1       EX1=1;//使能INT1中断
+ 228   1      }
+ 229          /**********  蜂鸣器  *********/
+ 230          void fmsound(u8 dt)
+ 231          {
+ 232   1       u8 i;
+ 233   1       for(i=0;i<dt;i++)
+ 234   1       {
+ 235   2        FM=0;
+ 236   2        Delay100ms();Delay100ms();
+ 237   2        FM=1;
+ 238   2        Delay100ms();Delay100ms();  
+ 239   2       }
+ 240   1      }
+C51 COMPILER V9.56.0.0   HL                                                                10/18/2023 16:03:19 PAGE 5   
+
+ 241          /**********  100ms延时程序  *********/
+ 242          void Delay100ms()   //@11.0592MHz
+ 243          {
+ 244   1        unsigned char data i, j, k;
+ 245   1      
+ 246   1        _nop_();
+ 247   1        i = 6;
+ 248   1        j = 157;
+ 249   1        k = 59;
+ 250   1        do
+ 251   1        {
+ 252   2          do
+ 253   2          {
+ 254   3            while (--k);
+ 255   3          } while (--j);
+ 256   2        } while (--i);
+ 257   1      }
+ 258          
+ 259          void Delay500ms()
+ 260          {
+ 261   1       Delay100ms();
+ 262   1       Delay100ms();
+ 263   1       Delay100ms();    
+ 264   1       Delay100ms();
+ 265   1       Delay100ms();
+ 266   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1096    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     13       2
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      3    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
